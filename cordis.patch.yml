@@ -1,0 +1,39 @@
+# dsh-search-mcp bundle layer: applied after dsh-base and dsh-web-app,
+# before the profile's own cordis.patch.yml (last write wins per row).
+#
+# Installing this package therefore REPLACES dsh's built-in web search:
+#   - the `web` row's searchProvider switches from `deepseek-official` to
+#     `search-mcp` (the provider registered by this plugin), and
+#   - the built-in DeepSeek search provider row is disabled.
+# The model-facing `web_search` tool keeps its name and presentation; its
+# execution now goes through the search MCP server(s) configured below or in
+# the web Settings → Plugins → search-mcp section.
+#
+# Removing this package (dsh plugin --profile web remove dsh-search-mcp)
+# drops this whole layer and restores the built-in search exactly.
+#
+# SECURITY: no API keys are committed to this repository. Server keys are
+# supplied at runtime through `apiKeyEnv` — stored in
+# `$DSH_HOME/.credentials.yaml` (e.g. `TAVILY_API_KEY: <key>`) — or through
+# the web Settings → Plugins → search-mcp section (`apiKey` field).
+
+- insert:
+    - id: search-mcp
+      name: 'dsh-search-mcp'
+      config:
+        defaultServer: tavily
+        maxResults: 8
+        searchTimeoutMs: 30000
+        servers:
+          - id: tavily
+            kind: tavily
+            url: 'https://mcp.tavily.com/mcp/'
+            apiKeyEnv: TAVILY_API_KEY
+            toolName: tavily_search
+
+- id: web
+  config:
+    searchProvider: search-mcp
+
+- id: web-search-deepseek
+  disabled: true
