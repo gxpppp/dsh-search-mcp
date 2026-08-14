@@ -37,3 +37,17 @@
 
 - id: web-search-deepseek
   disabled: true
+
+# The model-facing web_search tool is owned by dsh-tool-web (its `Config`
+# default is a hard 8-source cap, enforced by dsh-web's seam on EVERY
+# request). This plugin takes over result sizing, so raise the tool layer's
+# cap to the plugin schema maximum: `search-mcp`'s own maxResults (Settings →
+# Plugins → search-mcp) then decides how many sources actually come back.
+# `fetch` stays disabled and the base timeout is restated, because a patch
+# replaces the targeted row's whole config.
+- id: tool-web
+  disabled: false
+  config:
+    fetch: false
+    searchTimeoutMs: 60000
+    searchMaxResults: 50
