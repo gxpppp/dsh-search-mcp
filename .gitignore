@@ -1,3 +1,8 @@
 node_modules/
 *.log
+*.tgz
 .DS_Store
+
+# Local security scan state and private project handoff.
+.mimosa/
+PROJECT_CONTEXT.md
