@@ -1,5 +1,7 @@
 # dsh-search-mcp
 
+> Compatibility baseline: DeepSeek Harness `0.1.0-rc.7` (Node.js 20+).
+
 用**搜索类 MCP 服务器**完全替代 DeepSeek Harness（dsh）内置搜索的独立插件。
 
 - 模型侧 `web_search` 工具**保留原名、原展示**，但执行全部走你配置的搜索 MCP 服务器（Tavily / Brave / Exa / Perplexity / DuckDuckGo / 任意自定义 MCP）。
@@ -59,8 +61,8 @@ dsh web
 | `transport` | `http`（streamable-http，默认）或 `stdio`（本机命令，如 duckduckgo） |
 | `url` | http 端点，如 `https://mcp.tavily.com/mcp/` |
 | `command` / `args` | stdio 启动命令，如 `npx` + `["-y", "duckduckgo-mcp-server"]` |
-| `apiKey` | 密钥（secret 字段，界面按密码框显示、落盘脱敏） |
-| `apiKeyEnv` | 或填环境变量/凭证名（如 `TAVILY_API_KEY`），运行时经 dsh 凭证服务解析 |
+| `apiKey` | 密钥输入框。在 RC7 设置页保存时，值只沿写入方向进入 DSH credentials domain，并自动改写为稳定的 `apiKeyEnv` 引用；密钥不会经设置读取接口返回。Host 仍兼容旧配置中的字面 `apiKey`。 |
+| `apiKeyEnv` | 环境变量/凭证引用（如 `TAVILY_API_KEY`），运行时经 dsh 凭证服务解析。 |
 | `authStyle` / `authParam` | key 的注入方式：http 用 `query`（如 `tavilyApiKey`）或 `header`（如 `x-api-key`）；stdio 时 `authParam` 即注入的环境变量名（如 `BRAVE_API_KEY`） |
 | `toolName` | 该 MCP 的搜索工具名，如 `tavily_search` / `brave_web_search` / `web_search_exa` / `pplx_search` / `ddg_web_search` |
 | `maxResults` | 单服务器结果数上限（可选，默认取全局 `maxResults`） |
@@ -82,7 +84,26 @@ dsh web
 
 key 申请：Tavily（tavily.com）、Brave（brave.com/search/api，免费 2000 次/月）、Exa（exa.ai）、Perplexity（perplexity.ai）、DuckDuckGo 无需 key。
 
-## 验证
+## RC7 迁移说明
+
+本插件此前按 RC6 接口实现，当前代码已完成 RC7 适配：
+
+- 设置插件卡片使用 RC7 `settings.plugin.item` 的 namespace `key` 注册方式。
+- 设置保存遵循 RC7 revision 和 secret-redaction 约定；只改全局字段时不会重写服务器数组。
+- 服务器列表中的新密钥通过 RC7 credentials API 保存，并以 `apiKeyEnv` 引用运行；客户端只显示是否已配置，不读取密钥值。
+- 旧版本中仍含字面 `apiKey` 的服务器会显示“旧版密钥”。编辑或重排服务器前必须输入替代密钥或凭证引用，避免 RC7 脱敏回写误删旧密钥。
+- DSH 依赖必须精确锁定 `0.1.0-rc.7`，不要使用子包的 npm `latest` tag。
+
+本地检查：
+
+```powershell
+npm test
+npm run check
+npm pack --dry-run
+```
+
+发现 RC8 或正式版后，先对照 `dsh-settings` secret/mutate、`dsh-client-ui-settings-plugins` keyed slot 和 `dsh-tool-web` 配置行运行回归测试，再更新依赖版本。
+
 
 ```powershell
 # 组合层检查：searchProvider 已切换、deepseek 行已禁用
