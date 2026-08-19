@@ -1,100 +1,137 @@
 # dsh-search-mcp
 
-> Compatibility baseline: DeepSeek Harness `0.1.0-rc.7` (Node.js 20+).
+用搜索类 MCP 服务器完整替代 DeepSeek Harness（DSH）内置网页搜索的独立插件。
 
-用**搜索类 MCP 服务器**完全替代 DeepSeek Harness（dsh）内置搜索的独立插件。
+> 当前兼容基线：DeepSeek Harness `0.1.0-rc.7`，Node.js 20 或更高版本。
 
-- 模型侧 `web_search` 工具**保留原名、原展示**，但执行全部走你配置的搜索 MCP 服务器（Tavily / Brave / Exa / Perplexity / DuckDuckGo / 任意自定义 MCP）。
-- 插件启用期间**内置 DeepSeek 搜索 provider 不可用**（`web-search-deepseek` 行被禁用，`web.searchProvider` 切到 `search-mcp`）；卸载插件即完全还原。
-- 所有服务器配置（类型、端点/命令、API key 或 key 环境变量、工具名）都可以在 **Web 设置 → Plugins → search-mcp** 卡片里增删改，保存后即时生效，无需重启。
+## 功能
 
-## 为什么需要它
+- 模型侧继续使用原生 `web_search` 工具，名称和结果展示保持不变。
+- 搜索请求全部交给已配置的 MCP 服务器，不再调用内置 DeepSeek 搜索 provider。
+- 支持 Tavily、Brave、Exa、Perplexity、DuckDuckGo 和自定义 HTTP/stdio MCP。
+- 可在 **设置 → 插件 → 插件配置 → 搜索 MCP** 中维护服务器、切换默认 provider、填写凭据和调整结果数。
+- 设置保存后对下一次搜索立即生效；安装、升级或卸载浏览器 bundle 后需要重启 DSH Web 并刷新页面。
+- 卸载插件后 bundle 覆盖层随之移除，DSH 内置搜索组合恢复。
 
-dsh 内置 `web_search` 依赖 DeepSeek 官方搜索接口（`DEEPSEEK_API_KEY` 必须可解析），且每次搜索都消耗一次模型调用。换成 MCP 搜索服务器后：结果来自专业搜索 API（Tavily/Brave/Exa…），snapshot 质量更高、成本更可控，且多个搜索服务可在设置页里自由切换。
+## 工作方式
 
-## 安装
-
-```powershell
-# 0. 先让插件自包含：安装它自己的依赖（MCP SDK、dsh 服务包等）
-cd <本仓库路径>
-npm install
-
-# 1. 把插件装进 web profile（pnpm 需在 PATH 上；用 link: 使插件源码的
-#    后续改动即时生效，无需重装）
-dsh plugin --profile web add link:<本仓库路径>
-
-# 2. 删除旧的直连 Tavily MCP 行（避免 `mcp__tavily__*` 工具重复出现）：
-#    编辑 C:\Users\<你>\.dsh\profiles\web\cordis.patch.yml，
-#    删掉 mcp-tavily 那段 insert（本仓库已在本机完成此迁移，保留注释备份）
-
-# 3. 配置搜索服务器的 API key（密钥不入仓库）：
-#    编辑 C:\Users\<你>\.dsh\.credentials.yaml 添加，例如：
-#       TAVILY_API_KEY: <你的 key>
-#    或在 Web 设置 → Plugins → search-mcp 里直接填 apiKey 字段。
-
-# 4. 重启 dsh web 生效（Web bundle 未启用 HMR，必须重启进程）
-dsh web
-```
-
-安装即自动生效三件事（由本包的 `cordis.patch.yml` bundle 层完成）：
+插件注册稳定 provider id `search-mcp`，并通过 `cordis.patch.yml` 完成四项组合覆盖：
 
 ```yaml
 - insert:
-    - id: search-mcp            # 本插件行（内置 Tavily 服务器条目，key 已迁移）
+    - id: search-mcp
+
 - id: web
   config:
-    searchProvider: search-mcp  # web_search 工具改走本插件的 provider
+    searchProvider: search-mcp
+
 - id: web-search-deepseek
-  disabled: true               # 内置 DeepSeek 搜索不可用
+  disabled: true
+
+- id: tool-web
+  disabled: false
+  config:
+    fetch: false
+    searchTimeoutMs: 60000
+    searchMaxResults: 50
 ```
 
-> 说明：bundle 层在 `dsh-base` / `dsh-web-app` 之后、你的 `cordis.patch.yml` 之前应用；删除插件后该层整体消失，内置搜索原样恢复。
+`tool-web.searchMaxResults` 提高到 50，是为了避免模型侧工具先把 provider 返回结果截断。实际返回数量仍由 Search MCP 的全局或单服务器 `maxResults` 控制。`web_fetch` 保持关闭，不在本插件范围内。
 
-## 配置搜索服务器（设置页）
+## 安装
 
-打开 Web 界面 → **设置 → Plugins → search-mcp**，维护 `servers` 列表：
+### 1. 获取插件并安装依赖
+
+```powershell
+git clone https://github.com/gxpppp/dsh-search-mcp.git
+cd dsh-search-mcp
+npm install
+```
+
+### 2. 链接到 Web profile
+
+```powershell
+dsh plugin --profile web add link:<dsh-search-mcp 的绝对路径>
+```
+
+`link:` 会让后续源码更新直接作用于 profile，无需重复安装插件。
+
+如果 profile 中已经单独配置了 Tavily MCP，例如存在 `mcp-tavily` 行，建议先从 `$DSH_HOME/profiles/web/cordis.patch.yml` 删除该行，避免同时出现 `mcp__tavily__*` 工具和 `web_search` provider 两套入口。
+
+### 3. 配置凭据
+
+推荐在 `$DSH_HOME/.credentials.yaml` 中保存凭据：
+
+```yaml
+TAVILY_API_KEY: <your-key>
+```
+
+默认 bundle 已使用 `apiKeyEnv: TAVILY_API_KEY` 引用它。也可以在设置卡片的 API 密钥框中输入新值；RC7 客户端会将其写入 DSH credentials domain，并自动把服务器配置改为稳定的 `apiKeyEnv` 引用。密钥不会通过 settings 读取接口返回。
+
+### 4. 启动或重启 Web
+
+```powershell
+dsh web
+```
+
+然后刷新浏览器，打开：
+
+**设置 → 插件 → 插件配置 → 搜索 MCP**
+
+## 设置页
+
+卡片默认收起，展开后可配置以下全局选项：
 
 | 字段 | 说明 |
 |---|---|
-| `id` | 服务器唯一标识，`defaultServer` 用它引用 |
-| `kind` | `tavily` / `brave` / `exa` / `perplexity` / `duckduckgo` / `custom`，自动补全默认端点、鉴权方式和工具名 |
-| `transport` | `http`（streamable-http，默认）或 `stdio`（本机命令，如 duckduckgo） |
-| `url` | http 端点，如 `https://mcp.tavily.com/mcp/` |
-| `command` / `args` | stdio 启动命令，如 `npx` + `["-y", "duckduckgo-mcp-server"]` |
-| `apiKey` | 密钥输入框。在 RC7 设置页保存时，值只沿写入方向进入 DSH credentials domain，并自动改写为稳定的 `apiKeyEnv` 引用；密钥不会经设置读取接口返回。Host 仍兼容旧配置中的字面 `apiKey`。 |
-| `apiKeyEnv` | 环境变量/凭证引用（如 `TAVILY_API_KEY`），运行时经 dsh 凭证服务解析。 |
-| `authStyle` / `authParam` | key 的注入方式：http 用 `query`（如 `tavilyApiKey`）或 `header`（如 `x-api-key`）；stdio 时 `authParam` 即注入的环境变量名（如 `BRAVE_API_KEY`） |
-| `toolName` | 该 MCP 的搜索工具名，如 `tavily_search` / `brave_web_search` / `web_search_exa` / `pplx_search` / `ddg_web_search` |
-| `maxResults` | 单服务器结果数上限（可选，默认取全局 `maxResults`） |
+| `defaultServer` | 默认服务器 id；留空时使用第一行 |
+| `maxResults` | 全局结果数上限，默认 8，可选 1–50 |
+| `searchTimeoutMs` | MCP 搜索超时，默认 30000 ms；界面以秒显示 |
 
-全局字段：`defaultServer`（默认走哪个服务器）、`maxResults`（默认 8）、`searchTimeoutMs`（默认 30000）。
+每个 `servers` 条目支持：
 
-设置页保存的内容写入 `$DSH_HOME/settings.yaml` 的 `search-mcp:` 段，**优先于**行配置；provider 每次搜索重新读取快照，改完立即生效。
+| 字段 | 说明 |
+|---|---|
+| `id` | 服务器唯一标识，供 `defaultServer` 引用 |
+| `kind` | `tavily`、`brave`、`exa`、`perplexity`、`duckduckgo` 或 `custom` |
+| `transport` | `http`（Streamable HTTP）或 `stdio` |
+| `url` | HTTP MCP endpoint |
+| `command` / `args` | stdio MCP 启动命令和参数 |
+| `apiKey` | 写入方向的密钥输入；保存后迁移到 credentials domain |
+| `apiKeyEnv` | 环境变量或 DSH credential reference |
+| `authStyle` | HTTP key 注入方式：`query` 或 `header` |
+| `authParam` | query/header 参数名；stdio 下作为环境变量名 |
+| `toolName` | MCP 搜索工具名称 |
+| `maxResults` | 单服务器结果数覆盖；留空时继承全局值 |
 
-## 内置服务器速查（kind 预设）
+常用 provider 可以通过快捷按钮直接添加，默认 endpoint、鉴权位置和工具名会自动补全。
 
-| kind | 默认端点 | key 位置 | 默认工具 | 结果数参数 |
+## Provider 预设
+
+| kind | 默认连接 | 鉴权 | 默认工具 | 结果数参数 |
 |---|---|---|---|---|
 | `tavily` | `https://mcp.tavily.com/mcp/` | query `tavilyApiKey` | `tavily_search` | `max_results` |
 | `brave` | `https://mcp.brave.com/mcp/` | query `braveApiKey` | `brave_web_search` | `count` |
 | `exa` | `https://mcp.exa.ai/mcp` | header `x-api-key` | `web_search_exa` | `numResults` |
 | `perplexity` | `https://mcp.perplexity.ai/mcp/` | query `pplx_api_key` | `pplx_search` | `max_results` |
-| `duckduckgo` | `npx -y duckduckgo-mcp-server`（stdio，免 key） | — | `ddg_web_search` | — |
-| `custom` | 自己填 | 自己选 | 自己填 | — |
+| `duckduckgo` | `npx -y duckduckgo-mcp-server` | 无需 key | `ddg_web_search` | 无 |
+| `custom` | 用户配置 | 用户配置 | 用户配置 | 无 |
 
-key 申请：Tavily（tavily.com）、Brave（brave.com/search/api，免费 2000 次/月）、Exa（exa.ai）、Perplexity（perplexity.ai）、DuckDuckGo 无需 key。
+## RC6 → RC7 迁移
 
-## RC7 迁移说明
+当前版本已经完成 RC7 适配：
 
-本插件此前按 RC6 接口实现，当前代码已完成 RC7 适配：
+- 设置卡片使用 RC7 keyed slot：`settings.plugin.item` + namespace `key`。
+- DSH host 依赖精确锁定 `0.1.0-rc.7`，避免子包 npm `latest` tag 落到旧版本。
+- settings 保存遵循 RC7 revision 和 secret-redaction 约定。
+- 只修改全局结果数或超时时，不会重写 `servers` 数组。
+- 新密钥通过 credentials API 写入，客户端只能读取“是否已配置”，不能读取密钥值。
+- RC6 遗留的字面 `apiKey` 仍可由 Host 使用；设置页会标记为“旧版密钥”，并在可能丢失该值的结构编辑前要求先迁移到凭据引用。
+- `settings.plugin.item`、secret 处理、bundle 覆盖和 package exports 已加入回归测试。
 
-- 设置插件卡片使用 RC7 `settings.plugin.item` 的 namespace `key` 注册方式。
-- 设置保存遵循 RC7 revision 和 secret-redaction 约定；只改全局字段时不会重写服务器数组。
-- 服务器列表中的新密钥通过 RC7 credentials API 保存，并以 `apiKeyEnv` 引用运行；客户端只显示是否已配置，不读取密钥值。
-- 旧版本中仍含字面 `apiKey` 的服务器会显示“旧版密钥”。编辑或重排服务器前必须输入替代密钥或凭证引用，避免 RC7 脱敏回写误删旧密钥。
-- DSH 依赖必须精确锁定 `0.1.0-rc.7`，不要使用子包的 npm `latest` tag。
+## 验证
 
-本地检查：
+### 自动检查
 
 ```powershell
 npm test
@@ -102,47 +139,65 @@ npm run check
 npm pack --dry-run
 ```
 
-发现 RC8 或正式版后，先对照 `dsh-settings` secret/mutate、`dsh-client-ui-settings-plugins` keyed slot 和 `dsh-tool-web` 配置行运行回归测试，再更新依赖版本。
+当前测试覆盖 provider 预设、结果归一化、URL 去重、RC7 keyed slot、凭据迁移锚点、bundle 组合和 package exports。
 
+### 组合配置
 
 ```powershell
-# 组合层检查：searchProvider 已切换、deepseek 行已禁用
-dsh --profile web --dump-config | Select-String -Pattern "searchProvider|search-mcp|web-search-deepseek"
-
-# 重启后在新会话里让 agent 调用 web_search（如“搜索 MCP 服务器列表”），
-# 返回结果应来自 Tavily，且工具目录里不再有 mcp__tavily__*。
+dsh --profile web --dump-config |
+  Select-String -Pattern "searchProvider|search-mcp|web-search-deepseek|searchMaxResults"
 ```
 
-## 卸载与还原
+预期结果：
+
+- `web.searchProvider: search-mcp`
+- `web-search-deepseek.disabled: true`
+- `tool-web.disabled: false`
+- `tool-web.searchMaxResults: 50`
+
+### 已完成的 RC7 冒烟测试
+
+隔离 RC7 Web profile 已验证：
+
+- Search MCP 卡片能在插件设置页正常显示、折叠和展开。
+- Tavily 默认服务器、结果数、超时、快捷 provider 和服务器详细字段正常渲染。
+- API 密钥不会回显，只展示 credential reference。
+- 只展开查看不会产生脏状态，保存和放弃按钮保持禁用。
+- 真实 Tavily MCP 查询成功，约 7.8 秒返回 15 条来源，包含 DeepSeek Harness 官方 GitHub 仓库。
+
+## 卸载
 
 ```powershell
-# 方式一（pnpm 在 PATH 上）：
 dsh plugin --profile web remove dsh-search-mcp
-
-# 方式二（手动，pnpm 不在 PATH 时）：
-#   1. 编辑 C:\Users\<你>\.dsh\profiles\web\package.json：
-#      - dependencies 里删掉 "dsh-search-mcp": "link:..."
-#      - dsh.profile.bundles 里删掉 "dsh-search-mcp"
-#   2. 删除 C:\Users\<你>\.dsh\profiles\web\node_modules\dsh-search-mcp 链接
-
-# 之后：
-#   - 清掉 settings.yaml 里的 search-mcp: 段（如果在设置页改过配置）
-#   - 把 cordis.patch.yml 里注释备份的 mcp-tavily 段还原（可选）
-#   - 重启 dsh web：内置搜索（web-search-deepseek）恢复原样
 ```
+
+随后：
+
+1. 如有需要，删除 `$DSH_HOME/settings.yaml` 中的 `search-mcp:` 用户覆盖。
+2. 如需恢复独立 Tavily MCP 工具，重新添加原来的 `mcp-tavily` 行。
+3. 重启 DSH Web 并刷新页面。
+
+不要只禁用 `search-mcp` 插件行：bundle 同时覆盖了 `web`、`web-search-deepseek` 和 `tool-web`。完整卸载 bundle 才会恢复内置搜索组合。
 
 ## 故障排查
 
-- `configured web provider "search-mcp" is registered but unavailable` → `servers` 列表为空，去设置页添加。
-- `has no API key` → 该 kind 需要 key，填 `apiKey` 或 `apiKeyEnv`（env 需在 `$DSH_HOME/.credentials.yaml` 或启动环境里可解析）。
-- `defaultServer "x" is not configured` → 检查 `defaultServer` 与某个 `servers[].id` 是否一致。
-- `MCP server ... reported an error` / 连接失败 → 检查 URL、key 是否有效、网络是否可达；stdio 服务器请确认 `npx` 可执行。
-- 想临时关闭插件：在 `cordis.patch.yml` 里给 `search-mcp` 行加 `disabled: true`（内置搜索仍处于被替换状态，需同时还原 `web`/`web-search-deepseek` 两行才恢复内置）。
+- `configured web provider "search-mcp" is registered but unavailable`：`servers` 为空，请在设置页添加服务器。
+- `has no API key`：为该 provider 配置 `apiKeyEnv`，或在 API 密钥框中写入新凭据。
+- `defaultServer "x" is not configured`：`defaultServer` 没有匹配任何 `servers[].id`。
+- `MCP server ... reported an error`：MCP 工具返回错误，检查 endpoint、工具名和 provider 状态。
+- 连接失败或超时：检查网络、endpoint、凭据和 `searchTimeoutMs`；stdio provider 还需确认命令可执行。
+- 设置页没有 Search MCP 卡片：确认插件 client 模块已加载，重启 DSH Web 后强制刷新页面。
+- 搜索结果始终不超过较小数量：检查 `tool-web.searchMaxResults` 是否仍为 50，以及服务器是否设置了单独的 `maxResults`。
 
-## 实现说明
+## 实现摘要
 
-- provider 注册：`ctx.web.registerSearchProvider()`，id 固定为 `search-mcp`；返回形状与内置 provider 一致（`{ sources, truncated, content? }`），由原生 `web_search` 工具完成格式化。
-- MCP 客户端：`@modelcontextprotocol/sdk`，每次搜索新建连接（http 或 stdio），结束时必关闭；调用方取消信号与 `searchTimeoutMs` 超时竞速，中止抛 `WEB_ABORTED`。
-- 结果归一化：递归扫描 MCP 返回 JSON，凡带 `url` 的对象即作为 source（title/snippet/发布日期取常见字段名），`answer` 字段作为摘要——不依赖具体厂商格式，天然兼容未来新增的搜索 MCP。
-- 密钥解析顺序：字面 `apiKey` → dsh 凭证服务（`apiKeyEnv`）→ 启动环境变量。
-- 范围：只替换**搜索**；`web_fetch` 保持 dsh 默认关闭，不受影响。
+- Host provider：`ctx.web.registerSearchProvider()`，稳定 id 为 `search-mcp`。
+- MCP 客户端：`@modelcontextprotocol/sdk`；每次搜索新建连接并在 `finally` 中关闭。
+- 取消与超时：调用方 `AbortSignal` 与 `searchTimeoutMs` 合并，中止时抛出 `WEB_ABORTED`。
+- 结果归一化：递归收集带 HTTP(S) `url` 的对象，提取常见 title/snippet/date 字段并按 URL 去重。
+- 密钥解析顺序：历史字面 `apiKey` → DSH credential reference（`apiKeyEnv`）→ 启动环境变量。
+- 配置生效：provider 在每次搜索开始时读取设置快照，一次搜索不会混用两次保存的配置。
+
+## License
+
+MIT
