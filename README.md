@@ -126,7 +126,7 @@ RC2 的 `credentials/reference-updated` 事件会刷新设置卡片中的“已�
 - 注册 `search-mcp` provider。
 - 设置 `web.searchProvider: search-mcp`。
 - 禁用 `web-search-deepseek`。
-- 保持 `web_fetch` 关闭。
+- 保持 `fetch` 关闭。
 - 请求 `tool-web.searchMaxResults: 50` 和 `searchMaxQueries: 4`。
 
 RC2 的 standard、code、cordis agent preset 各自包含 `tool-web` 行，并且都省略了 `searchMaxResults` 和 `searchMaxQueries`，因此实际采用 `dsh-tool-web` 默认值 8 和 4。agent-scoped 工具会遮蔽根层同名工具，所以根层 patch 中的 50 条请求不会提高这些 shipped preset 的实际上限。验证结果上限时必须检查 session 使用的 preset，不能只依据根层 `--dump-config`。
